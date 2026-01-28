@@ -6,7 +6,7 @@ class WeekModel(nn.Module):
     [item_idx, brand, category_code, price, event_type, event_time(float, hour unit)]
     [B, 7, 6]  -> [B, 29502(items number)]
     '''
-    def __init__(self, num_items = 638257, d_item = 64):
+    def __init__(self, num_users = 638257, d_user = 64):
         super().__init__()
         self.item_emb = nn.Embedding(num_items, d_item)
         self.item_emb_proj = nn.Linear(4, d_item)
