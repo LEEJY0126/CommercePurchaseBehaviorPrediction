@@ -35,9 +35,11 @@ class Datamanager:
 
         df['user_idx'] = df['user_id'].map(user2idx)
         df['item_idx'] = df['item_id'].map(item2idx)
-        print("[datamanager] Append user-index data in df]")
+        print("[datamanager] Append user-index data in df")
 
         df['event_time'] = pd.to_datetime(df['event_time'], format='%Y-%m-%d %H:%M:%S %Z')
+        ref_time = df["event_time"].min()
+        df["event_hour_float"] = (df["event_time"] - ref_time).dt.total_seconds() / 3600
         df = df.sort_values('event_time', ascending=True)
         print("[datamanager] Event time Sorting success")
 
@@ -46,14 +48,38 @@ class Datamanager:
         test_df = test_df[test_df["event_type"] == "purchase"]
         test_df = test_df[["user_idx", "item_idx"]]
         train_df["label"] = 1
-        user_item_matrix = train_df.groupby(["user_idx", "item_idx"])["label"].sum().reset_index()
+        # user_item_matrix = train_df.groupby(["user_idx", "item_idx"])["label"].sum().reset_index()
 
-        return user_item_matrix, test_df
+        return train_df, test_df
+    
+    def analysis_data(self, train_df):
+        '''
+        This function analysis df for target column
+        Set target_column like "purchase", "view" ...
+
+        :param train_df: Description
+        '''
+        target_column = "view"
+        print(f"[datamanager] Analysising data about {target_column}")
+        target_df = train_df[train_df["event_type"] == target_column]
+        user_target_counts = (
+        target_df
+        .groupby("user_idx")
+        .size()
+        )
+        min_target = user_target_counts.min()
+        mean_target = user_target_counts.mean()
+        max_target = user_target_counts.max()
+
+        print(f"[datamanager] Min {target_column} per user:", min_target)
+        print(f"[datamanager] Mean {target_column} per user:", mean_target)
+        print(f"[datamanager] Max {target_column} per user:", max_target)
 
 
 if __name__ == "__main__" :
     config = Config()
     datamanager = Datamanager(config)
     train_df, test_df = datamanager.load_data(config.data["data_path"])
-    print("[datamanger] df : \n", train_df.head())
-    print("[datamanager] dtype : ", type(train_df))
+    datamanager.analysis_data(train_df)
+    # print("[datamanger] df max : \n", train_df["event_hour_float"].max())
+    # print("[datamanager] dtype : ", type(train_df))
