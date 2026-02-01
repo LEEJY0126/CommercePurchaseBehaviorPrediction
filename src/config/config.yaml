@@ -1,2 +1,11 @@
 data:
   data_path : "/root/data/train.parquet"
+  pickle_data_path : "/root/workspace/CommercePurchaseBehaviorPrediction/data/pickle"
+  output_path : "/root/workspace/CommercePurchaseBehaviorPrediction/output"
+  start_date : ["2019-12-01", "2020-01-15", "2020-02-22"]
+train:
+  batch_size : 16
+  num_epoch : 1000
+  lr : 0.00001
+  num_val : 1000
+  max_len: 100

@@ -8,4 +8,5 @@ class Config :
             config = yaml.safe_load(f)
         
         self.data = config["data"]
+        self.train = config["train"]
 
