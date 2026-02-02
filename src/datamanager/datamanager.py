@@ -238,7 +238,7 @@ class Datamanager:
                            all_user_dict=None,
                            num_items=29502,
                            prepare_infer=False
-                           ) -> tuple[DataLoader, DataLoader]:
+                           ) -> tuple[DataLoader, DataLoader, DataLoader]:
         if(train_groups is None):
             df = self.load_data(self.config.data["data_path"])
             max_len = self.config.train['max_len']
@@ -336,8 +336,8 @@ class Datamanager:
 
         train_dataset = RecommandedDataset(train_user_idx, train_x, train_label, 
                                            self.config.train['max_len'], self.config.data['num_items'], self.event2idx)
-        subset_indices = list(range(1000))
-        train_subset = Subset(train_dataset, subset_indices)
+        # subset_indices = list(range(1000))
+        # train_subset = Subset(train_dataset, subset_indices)
         val_dataset = RecommandedDataset(val_user_idx, val_x, val_label,
                                          self.config.train['max_len'], self.config.data['num_items'], self.event2idx)
         if prepare_infer:
@@ -349,11 +349,11 @@ class Datamanager:
             shuffle=True,
         )
 
-        train_sub_dataloader = DataLoader(
-            train_subset,
-            batch_size= self.config.train['batch_size'],
-            shuffle=True,
-        )
+        # train_sub_dataloader = DataLoader(
+        #     train_subset,
+        #     batch_size= self.config.train['batch_size'],
+        #     shuffle=True,
+        # )
 
         valid_dataloader = DataLoader(
             val_dataset,
@@ -376,7 +376,7 @@ class Datamanager:
 
         print(f"[datamanager] Train samples: {len(train_dataset)}, Valid samples: {len(val_dataset)}")
 
-        return train_sub_dataloader, valid_dataloader, infer_dataloader
+        return train_dataloader, valid_dataloader, infer_dataloader
     
     def save_data(self, file_name, user_groups, labels=None, num_items=29502):
         path = os.path.join(self.config.data['pickle_data_path'], f"{file_name}")

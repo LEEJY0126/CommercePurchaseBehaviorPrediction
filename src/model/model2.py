@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.manifold import TSNE
 from tqdm import tqdm
+import json
 
 D_ITEM = 64 # Item embedding
 D_OTHER = 16 # Other Embedding, brands, categories, price
@@ -192,12 +193,12 @@ class PurchasePred :
         total_loss = (view_weight * view_loss) + (purchase_weight * purchase_loss)
         return total_loss
     
-    def train_one_epoch(self, train_dataloader, val_dataloader,optimizer) -> float:
+    def train_one_epoch(self, train_dataloader, val_dataloader, optimizer, epoch, num_epoch) -> float:
         self.model.train()
         # pos_weight = torch.tensor([15000.0]).to(self.device)
         total_loss = 0.0
 
-        pbar = tqdm(train_dataloader, desc="Training", leave=False)
+        pbar = tqdm(train_dataloader, desc=f"Training{epoch+1/num_epoch}", leave=False)
         for i, (ids, histories, labels) in enumerate(pbar):
             histories = histories.to(self.device)
             labels = labels.to(self.device)
@@ -233,22 +234,26 @@ class PurchasePred :
 
         return avg_loss
     
-    def train(self, train_dataloader, valid_dataloader):
+    def train(self, train_dataloader, valid_dataloader, infer_dataloader):
         num_epoch = self.config.train['num_epoch']
         optimizer = self.optimizer
         best_ndcg = 0.0
         for epoch in range(num_epoch):
-            train_loss = self.train_one_epoch(train_dataloader, valid_dataloader, optimizer)
+            train_loss = self.train_one_epoch(train_dataloader, valid_dataloader, optimizer, epoch, num_epoch)
             print(f"[Epoch {epoch+1}/{num_epoch}] Train loss = {train_loss:.8f}")
             val_loss, v_ndcg, p_ndcg = self.validate(valid_dataloader)
+            # For saving metadata
+            self.val_loss = val_loss
+            self.v_ndcg = v_ndcg
+            self.p_ndcg = p_ndcg
 
             is_best =  p_ndcg > best_ndcg
             if is_best :
                 best_ndcg = p_ndcg
             self.save_checkpoint(self.config.data["output_path"], epoch, p_ndcg, is_best=is_best)
+            print(f"[model1] End Epoch[{epoch+1}/{num_epoch}]. | Validation Loss : {val_loss:.4f} | View NDCG@10 : {v_ndcg:.4f} | Purchase NDCG@10 : {p_ndcg:.4f}")
+            self.infer(infer_dataloader, f"{self.name}_epoch{epoch+1}")
 
-        print(f"[model1] End training.\nBest Validation Loss : {val_loss:.4f} \nBest View NDCG@10 : {v_ndcg:.4f}  \nBest Purchase NDCG@10 : {p_ndcg:.4f}")
-    
     @torch.no_grad()
     def validate(self, dataloader) -> tuple[float, float, float]:
         self.model.eval()
@@ -352,6 +357,7 @@ class PurchasePred :
         df_vres = pd.DataFrame(flattened_vdata, columns=['user_id', 'item_id'])
         df_pres = pd.DataFrame(flattened_pdata, columns=['user_id', 'item_id'])
         infer_path = os.path.join(self.config.data["output_path"], f"output({self.name})")
+        os.makedirs(infer_path, exist_ok=True)
         v_path = os.path.join(infer_path, f"View_{output_name}.csv")
         p_path = os.path.join(infer_path, f"Purc_{output_name}.csv")
         df_vres.to_csv(v_path, index=True)
@@ -359,10 +365,28 @@ class PurchasePred :
 
         print(f"[model2] Saved {len(df_vres)} recommendation rows to {v_path}")
         print(f"[model2] Saved {len(df_pres)} recommendation rows to {p_path}")
-        return all_vrecommendations, all_precommendations
 
-    def prepare_dataloader(self):
-        train_dataloader, valid_dataloader, infer_dataloader = self.datamanager.prepare_dataloader()
+        # Save metadata
+        metadata = {
+            "model_name": self.name,
+            "output_name": output_name,
+            "metrics": {
+                "val_loss": getattr(self, 'val_loss', 0.0),
+                "valid_view_ndcg": getattr(self, 'v_ndcg', 0.0),
+                "valid_purchase_ndcg": getattr(self, 'p_ndcg', 0.0)
+            },
+            "config": self.config.to_dict()
+        }
+
+        # 2. Save to JSON
+        meta_path = os.path.join(infer_path, f"metadata_{output_name}.json")
+        with open(meta_path, 'w') as f:
+            json.dump(metadata, f, indent=4)
+
+        # return all_vrecommendations, all_precommendations
+
+    def prepare_dataloader(self, prepare_infer = False):
+        train_dataloader, valid_dataloader, infer_dataloader = self.datamanager.prepare_dataloader(prepare_infer=prepare_infer)
         return train_dataloader, valid_dataloader, infer_dataloader
     
     def save_checkpoint(self, path, epoch, val_ndcg, is_best=False):
@@ -380,12 +404,13 @@ class PurchasePred :
         # Save the regular epoch checkpoint
         model_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch}.pt")
         torch.save(checkpoint, model_path)
+        print(f"[model2] 🫙 Save checkpoint in {model_path}")
         
         # Save the "Best" version separately for easy access
         if is_best:
             best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
             torch.save(checkpoint, best_model_path)
-            print(f" [!] New Best Model Saved (NDCG: {val_ndcg:.4f})")
+            print(f"[model2] 🫙 New Best Model Saved (NDCG: {val_ndcg:.4f})")
 
     def load_checkpoint(self, checkpoint_path):
         if not os.path.exists(checkpoint_path):

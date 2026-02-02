@@ -17,5 +17,5 @@ model:
   d_event_type : 8 # Event type Embedding
   d_event_time : 16 # Event time Embedding 
   d_model : 256 # Event output and Transformer input
-  nhead : 8
+  nhead : 8 
   num_layers : 2

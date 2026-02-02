@@ -11,3 +11,10 @@ class Config :
         self.train = config["train"]
         self.model = config['model']
 
+    def to_dict(self):
+        # This converts the class attributes back into a nested dictionary
+        return {
+            "data": self.data,
+            "train": self.train,
+            "model": self.model
+        }
