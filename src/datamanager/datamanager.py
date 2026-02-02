@@ -10,6 +10,7 @@ from typing import List
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import Subset
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
@@ -45,45 +46,52 @@ class RecommandedDataset(Dataset):
     :param history_list: 추출된 history DataFrame들의 리스트
     :param labels: 추출된 target labels DataFrame
     """
-    def __init__(self, user_idx:List ,history: List[pd.DataFrame], labels: pd.DataFrame=None, max_len: int = 100, num_items=29502):
+    def __init__(self, 
+                 user_idx:List, 
+                 history: List[np.ndarray], 
+                 labels: List[pd.DataFrame]=None, 
+                 max_len: int = 100, 
+                 num_items: int=29502, 
+                 event2idx: dict=None
+                 ):
         self.user_idx = user_idx
         self.history = history
         self.labels = labels
         self.max_len = max_len
         self.num_items = num_items
+        self.event2idx = event2idx
 
     def __len__(self):
-        return len(self.labels)
+        return len(self.history)
     
     def __getitem__(self, idx):
-        hist_df = self.history[idx]
         uid = self.user_idx[idx]
+        # Padding history to max_len
+        h = self.history[idx]
+        padded_h = np.zeros((self.max_len, h.shape[1]))
+        if len(h) > 0:
+            length = min(len(h), self.max_len)
+            padded_h[-length:] = h[-length:]
 
-        values = hist_df.values
-        curr_len = len(values)
-        num_features = values.shape[1]
-        # Padding 
-        padded_hist = np.zeros((self.max_len, num_features), dtype=np.float32)
-
-        if curr_len > 0:
-            # max_len보다 길면 자르고, 짧으면 있는 만큼만 채움
-            actual_len = min(curr_len, self.max_len)
-            padded_hist[-actual_len:] = values[-actual_len:]
-
-        hist_tensor = torch.from_numpy(padded_hist)
+        hist_tensor = torch.from_numpy(padded_h)
 
         if self.labels is None:
             return torch.tensor(uid, dtype=torch.long), hist_tensor
 
         else:
-            label = self.labels.iloc[idx]['item_idx']
-            multi_hot = torch.zeros(self.num_items+1, dtype=torch.float32)
-            multi_hot[label] = 1.0
-            return (
-                    torch.tensor(uid, dtype=torch.long), 
-                    hist_tensor, 
-                    multi_hot
-            )
+            items = self.labels["item_idx"].iloc[idx]
+            types = self.labels["event_type_idx"].iloc[idx]
+
+            target_tensor = torch.zeros((self.num_items+1, 2))
+            for item_id, t_type in zip(items, types):
+                item_id = int(item_id)
+                if t_type == self.event2idx['view']:
+                    target_tensor[item_id, 0] = 1.0
+                else: # cart or purchase
+                    target_tensor[item_id, 1] = 1.0
+                    target_tensor[item_id, 0] = 1.0 # Also count as view
+            return torch.tensor(uid, dtype=torch.long), hist_tensor, target_tensor
+
         
 def collate_fn(batch):
     '''
@@ -239,16 +247,19 @@ class Datamanager:
 
             mask = df["event_type_idx"].isin([
                 self.event2idx['purchase'], 
-                self.event2idx['cart']
+                self.event2idx['cart'],
+                self.event2idx['view']
             ])
             # print("[datamanager] mask : ", mask.head())
 
-            all_labels = df[mask].copy()
+            all_labels = df[mask][['item_idx', 'event_type_idx']].copy()
             target_indices = all_labels.index
             # print("[datamanager] target_indices : ", target_indices)
 
             all_history = []
             all_user_ids = []
+            all_target_items = []
+            all_target_types = []
             target_cols = ['user_idx', 'item_idx', 'brand_idx', 'category_idx', 
                     'price', 'event_hour_float', 'event_type_idx']
             
@@ -266,26 +277,48 @@ class Datamanager:
                     history = group.tail(max_len).drop(columns=['user_idx'])
                     infer_data.append(history)
 
-            for idx in tqdm(target_indices, desc="Extracting history sequences"):
-                user_id = df.at[idx, 'user_idx']
-                
-                # 이전 max_len만큼 자르기
-                start_idx = max(0, idx - max_len)
-                history = df.iloc[start_idx:idx][target_cols].copy()
-                
-                # Another user filtering
-                history = history[history['user_idx'] == user_id]
-                history = history.drop(columns="user_idx")
+            grouped = df.groupby('user_idx')
+            target_len = self.config.data["target_len"]
+            # ("[datamanager] grouped dtype : ", grouped[target_cols].dtypes)
+            for user_id, group in tqdm(grouped, desc="Processing User Groups"):
+                group_values = group[target_cols].values
+                n_events = len(group_values)
+                for i in range(len(group)):
+                    event_type = group_values[i, -1] # event_type_idx is the last col
 
-                # Extract target_cols
-                all_history.append(history)
-                all_user_ids.append(user_id)
+                    # Check if this event is a target
+                    if event_type in [self.event2idx['view'], self.event2idx['cart'], self.event2idx['purchase']]:
+                        # History
+                        start_history_idx = max(0, i - max_len) 
+                        history = group_values[start_history_idx:i, 1:] # drop user_idx (col 0)
+
+                        # Labels
+                        end_target_idx = min(n_events, i + target_len)
+                        future_slice = group_values[i : end_target_idx]
+                        if len(future_slice) > 0:
+
+                            target_items = future_slice[:, 1].astype(int)      # item_idx column
+                            target_types = future_slice[:, -1].astype(int)     # event_type_idx column
+
+                            all_history.append(history)
+                            all_user_ids.append(user_id)
+                            all_target_items.append(target_items)
+                            all_target_types.append(target_types)
+            print(f"[datamanager] User groups process successful. Total sequences: {len(all_history)}")
+            print(f"[datamanager] Sample Target Shape (middle): {all_target_items[len(all_target_items)//2].shape}")
+            print(f"[datamanager] Last Target Shape (end): {all_target_items[-1].shape}")
+
+            # Create DataFrame for labels   
+            all_labels = pd.DataFrame({
+            'item_idx': all_target_items,
+            'event_type_idx': all_target_types
+            })
 
             all_history_idx = list(range(len(all_history)))
                 
             train_indices, val_indices = train_test_split(
                     all_history_idx, 
-                    test_size=0.2, 
+                    test_size=1e-3, 
                     random_state=42, 
                     shuffle=True
                 )
@@ -301,13 +334,23 @@ class Datamanager:
             # self.save_data("infer_data.pkl", user_groups=all_user_dict)
             
 
-        train_dataset = RecommandedDataset(train_user_idx, train_x, train_label, self.config.train['max_len'])
-        val_dataset = RecommandedDataset(val_user_idx, val_x, val_label, self.config.train['max_len'])
+        train_dataset = RecommandedDataset(train_user_idx, train_x, train_label, 
+                                           self.config.train['max_len'], self.config.data['num_items'], self.event2idx)
+        subset_indices = list(range(1000))
+        train_subset = Subset(train_dataset, subset_indices)
+        val_dataset = RecommandedDataset(val_user_idx, val_x, val_label,
+                                         self.config.train['max_len'], self.config.data['num_items'], self.event2idx)
         if prepare_infer:
             infer_dataset = RecommandedDataset(user_idx=infer_user_ids, history=infer_data, labels=None, max_len=self.config.train['max_len'])
 
         train_dataloader = DataLoader(
             train_dataset,
+            batch_size= self.config.train['batch_size'],
+            shuffle=True,
+        )
+
+        train_sub_dataloader = DataLoader(
+            train_subset,
             batch_size= self.config.train['batch_size'],
             shuffle=True,
         )
@@ -333,7 +376,7 @@ class Datamanager:
 
         print(f"[datamanager] Train samples: {len(train_dataset)}, Valid samples: {len(val_dataset)}")
 
-        return train_dataloader, valid_dataloader, infer_dataloader
+        return train_sub_dataloader, valid_dataloader, infer_dataloader
     
     def save_data(self, file_name, user_groups, labels=None, num_items=29502):
         path = os.path.join(self.config.data['pickle_data_path'], f"{file_name}")

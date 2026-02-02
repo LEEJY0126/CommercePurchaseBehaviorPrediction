@@ -9,4 +9,5 @@ class Config :
         
         self.data = config["data"]
         self.train = config["train"]
+        self.model = config['model']
 

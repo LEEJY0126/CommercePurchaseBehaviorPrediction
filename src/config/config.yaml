@@ -3,9 +3,19 @@ data:
   pickle_data_path : "/root/workspace/CommercePurchaseBehaviorPrediction/data/pickle"
   output_path : "/root/workspace/CommercePurchaseBehaviorPrediction/output"
   start_date : ["2019-12-01", "2020-01-15", "2020-02-22"]
+  num_items : 29502
+  target_len : 10
 train:
-  batch_size : 16
+  batch_size : 32
   num_epoch : 1000
   lr : 0.00001
   num_val : 1000
   max_len: 100
+model:
+  d_item : 64 # Item embedding
+  d_other : 16 # Other Embedding, brands, categories, price
+  d_event_type : 8 # Event type Embedding
+  d_event_time : 16 # Event time Embedding 
+  d_model : 256 # Event output and Transformer input
+  nhead : 8
+  num_layers : 2

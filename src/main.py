@@ -7,12 +7,12 @@ from src.config.config import Config
 
 if __name__ == "__main__":
     config = Config()
-    _model = PurchasePred(config)
+    main_model = PurchasePred(name="Experiment1", config=config)
 
     dates = [config.data["start_date"][0], config.data["start_date"][1], config.data["start_date"][2]]
 
 
-    train_dataloader, valid_dataloader, infer_dataloader = _model.prepare_dataloader()
+    train_dataloader, valid_dataloader, infer_dataloader = main_model.prepare_dataloader()
     
     # print("[main] Data loading from pickle...")
     # train_pickle_name = "train_data.pkl"
@@ -30,5 +30,5 @@ if __name__ == "__main__":
     #     all_user_dict=infer_pickle['user_groups']
     # )
     
-    _model.train(train_dataloader, valid_dataloader)
-    _model.infer(infer_dataloader, "output1.csv")
+    main_model.train(train_dataloader, valid_dataloader)
+    main_model.infer(infer_dataloader, "output1.csv")
