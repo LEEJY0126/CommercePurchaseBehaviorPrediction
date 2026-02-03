@@ -124,12 +124,14 @@ class TransformerRecommender(nn.Module):
                             )
         self.num_items = num_items
         
-        # 트랜스포머는 위치 정보를 모르기 때문에 포지셔널 임베딩 추가 필요
+        # Adding positional embedding
         self.pos_emb = nn.Parameter(torch.zeros(1, max_len, d_model)) 
         
+        # Transformer
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
+        # Last layer to predict logit
         self.predictor = nn.Linear(d_model, (self.num_items+1)*2)
 
     def forward(self, x):
@@ -198,7 +200,7 @@ class PurchasePred :
         # pos_weight = torch.tensor([15000.0]).to(self.device)
         total_loss = 0.0
 
-        pbar = tqdm(train_dataloader, desc=f"Training{epoch+1/num_epoch}", leave=False)
+        pbar = tqdm(train_dataloader, desc=f"Training{epoch+1}/{num_epoch}", leave=False)
         for i, (ids, histories, labels) in enumerate(pbar):
             histories = histories.to(self.device)
             labels = labels.to(self.device)
@@ -234,11 +236,11 @@ class PurchasePred :
 
         return avg_loss
     
-    def train(self, train_dataloader, valid_dataloader, infer_dataloader):
+    def train(self, train_dataloader, valid_dataloader, infer_dataloader, start_epoch=0):
         num_epoch = self.config.train['num_epoch']
         optimizer = self.optimizer
         best_ndcg = 0.0
-        for epoch in range(num_epoch):
+        for epoch in range(start_epoch, num_epoch):
             train_loss = self.train_one_epoch(train_dataloader, valid_dataloader, optimizer, epoch, num_epoch)
             print(f"[Epoch {epoch+1}/{num_epoch}] Train loss = {train_loss:.8f}")
             val_loss, v_ndcg, p_ndcg = self.validate(valid_dataloader)
@@ -399,10 +401,11 @@ class PurchasePred :
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'val_ndcg': val_ndcg,
+            'config': self.config.to_dict()
         }
         
         # Save the regular epoch checkpoint
-        model_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch}.pt")
+        model_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch+1}.pt")
         torch.save(checkpoint, model_path)
         print(f"[model2] 🫙 Save checkpoint in {model_path}")
         
@@ -414,25 +417,28 @@ class PurchasePred :
 
     def load_checkpoint(self, checkpoint_path):
         if not os.path.exists(checkpoint_path):
-            print(f" [!] No checkpoint found at: {checkpoint_path}")
-            return 0  # Return epoch 0 if nothing found
+            print(f"[model2] [!] No checkpoint found at: {checkpoint_path}")
+            return 0
         
-        print(f" [*] Loading checkpoint from {checkpoint_path}...")
-        
-        # map_location ensures it loads on the current device (CPU or GPU)
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         
-        # Restore the model weights
+        # 1. 모델 가중치 로드
         self.model.load_state_dict(checkpoint['model_state_dict'])
         
-        # Restore the optimizer's "memory" (AdamW moments)
+        # 2. Config 복원 (딕셔너리 형태로 들어있으므로, 클래스 속성에 다시 할당)
+        saved_config_dict = checkpoint.get('config', {})
+        if saved_config_dict:
+            # 기존 self.config 객체의 속성들을 덮어씌웁니다.
+            self.config.data = saved_config_dict.get('data', self.config.data)
+            self.config.train = saved_config_dict.get('train', self.config.train)
+            self.config.model = saved_config_dict.get('model', self.config.model)
+        
+        # 3. 옵티마이저 로드
         if 'optimizer_state_dict' in checkpoint:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             
-        start_epoch = checkpoint['epoch'] + 1
-        val_ndcg = checkpoint.get('val_ndcg', 0.0)
-        
-        print(f" [+] Resuming from Epoch {start_epoch} (Last Val NDCG: {val_ndcg:.4f})")
+        start_epoch = checkpoint['epoch']
+        print(f"[model2] [+] Config and Weights restored from Epoch {start_epoch}")
         return start_epoch
     
 

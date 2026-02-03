@@ -9,9 +9,6 @@ if __name__ == "__main__":
     config = Config()
     main_model = PurchasePred(name="Experiment1", config=config)
 
-    dates = [config.data["start_date"][0], config.data["start_date"][1], config.data["start_date"][2]]
-
-
     train_dataloader, valid_dataloader, infer_dataloader = main_model.prepare_dataloader(prepare_infer=True)
     
     # print("[main] Data loading from pickle...")
@@ -29,6 +26,10 @@ if __name__ == "__main__":
     #     val_labels=val_pickle['labels'],
     #     all_user_dict=infer_pickle['user_groups']
     # )
+
+    checkpoint_path = "/root/workspace/CommercePurchaseBehaviorPrediction/output/checkpoints(Experiment1)/model_epoch_4.pt"
+    start_epoch = main_model.load_checkpoint(checkpoint_path=checkpoint_path)
+    main_model.train(train_dataloader, valid_dataloader, infer_dataloader, start_epoch)
     
-    main_model.train(train_dataloader, valid_dataloader, infer_dataloader)
-    main_model.infer(infer_dataloader, "output1.csv")
+    # main_model.train(train_dataloader, valid_dataloader, infer_dataloader)
+    # main_model.infer(infer_dataloader, "output1.csv")
