@@ -10,7 +10,6 @@ A high-performance recommendation system powered by **Transformer architecture**
 * **Multi-Task Learning (MTL)**: Simultaneously optimizes for both `View` and `Purchase` events to leverage the "signal boost" from frequent view data.
 * **Extreme Imbalance Handling**: Implements custom loss weighting (e.g., `purchase_weight=100`) to address the 4000:1 ratio between views and purchases.
 * **Robust Experiment Tracking**: Automated metadata logging (`config.yaml`, `metadata.json`) and checkpoint management for reproducible AI research.
-* **Interactive Training Control**: Non-blocking multi-threaded terminal interface for manual saving and safe stopping during runtime.
 
 ---
 
